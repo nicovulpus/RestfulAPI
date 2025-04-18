@@ -5,9 +5,15 @@ using System.Security.Cryptography;
 using System;
 using System.Text;
 using BCrypt.Net;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using Microsoft.IdentityModel.Tokens;
 
-// STATE THAT THIS IS A WEB API CONTROLLER, NOT MVC VIEW CONTROLLER
+
+
+// STATE THAT THIS IS A WEB API CONTROLLER
 [ApiController]
+
 // THEN DEFINE THE API ENDPOINTS 
 
 // BEGIN BY SETTING A BASE ROUTE CONTROLLER
@@ -21,12 +27,38 @@ public class UserController : ControllerBase
   // Set a new variable _context with type AppDbContext
   // Which allows the controller to access the database
   private readonly AppDbContext _context;
+  private readonly IConfiguration _configuration; 
   
   // Explicitly create a constructor for the UserController class
-  public UserController (AppDbContext context)
+  public UserController (AppDbContext context, IConfiguration configuration)
   {
     _context = context;
+    _configuration = configuration; 
   }
+
+  private string GenerateJwtToken(User user)
+{
+    var claims = new[]
+    {
+        new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+        new Claim(JwtRegisteredClaimNames.Email, user.Email),
+        new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+    };
+
+    var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["JwtSettings:Key"]));
+    var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
+    var token = new JwtSecurityToken(
+        issuer: _configuration["JwtSettings:Issuer"],
+        audience: _configuration["JwtSettings:Audience"],
+        claims: claims,
+        expires: DateTime.Now.AddHours(3),
+        signingCredentials: creds
+    );
+
+    return new JwtSecurityTokenHandler().WriteToken(token);
+}
+
 
 // POST REGISTER PATH 
 // Create a path called register 
@@ -79,8 +111,11 @@ public class UserController : ControllerBase
             // CHECK PASSWORD
             if (!BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
             return Unauthorized("Invalid credentials.");
+            
+            var token = GenerateJwtToken(user);
 
-            return Ok("Login successful!");
+            return Ok(token);
+
         }
         // GET ID 
         [HttpGet("{id}")]
@@ -99,3 +134,5 @@ public class UserController : ControllerBase
             public string Password { get; set; }
         }
     }
+
+
