@@ -39,6 +39,9 @@ builder.Services.AddAuthentication("Bearer")
         };
     });
 
+
+
+
 // Create the actual app instance
 var app = builder.Build();
 

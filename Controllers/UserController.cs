@@ -8,6 +8,8 @@ using BCrypt.Net;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using Microsoft.IdentityModel.Tokens;
+using RestfulAPI.DTO;
+using Microsoft.AspNetCore.Authorization;
 
 
 
@@ -28,6 +30,8 @@ public class UserController : ControllerBase
   // Which allows the controller to access the database
   private readonly AppDbContext _context;
   private readonly IConfiguration _configuration; 
+  
+  
   
   // Explicitly create a constructor for the UserController class
   public UserController (AppDbContext context, IConfiguration configuration)
@@ -127,12 +131,110 @@ public class UserController : ControllerBase
             return user;
         }
 
+        // GET LOCATION
+        [Authorize]
+        [HttpPost("location")]
+        
+        public async Task<IActionResult> UpdateLocation([FromBody] LocationDto locationDto)
+        {
+            
+            
+            if (locationDto == null)
+            {
+                return BadRequest("Invalid location data.");
+            }
+
+            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+            // Create a bounding box
+            double lat = locationDto.Latitude;
+            double lon = locationDto.Longitude;
+            double distanceInKm = 1.0;
+
+            double latDegreeDelta = distanceInKm / 111.0;
+            double lonDegreeDelta = distanceInKm / ( 111.0 * Math.Cos(lat * Math.PI / 180 ));
+
+            double minLat = lat - latDegreeDelta;
+            double maxLat = lat + latDegreeDelta;
+            double minLon = lon - lonDegreeDelta;
+            double maxLon = lon + lonDegreeDelta;
+
+            // Select the nearby addresses in the bounding box
+
+            var nearbyAddresses = await _context.Addresses
+                .Where(a => a.Latitude >= minLat && a.Latitude <= maxLat
+                        && a.Longitude >= minLon && a.Longitude <= maxLon)
+                .ToListAsync();
+
+            // Pinpoint the nearest address
+            Address closestAddress = null;
+            double closestDistance = double.MaxValue;
+
+            foreach (var address in nearbyAddresses)
+            {
+                double distance = CalculateDistance(locationDto.Latitude, locationDto.Longitude, address.Latitude, address.Longitude);
+
+                if (distance < closestDistance)
+                {
+                    closestDistance = distance;
+                    closestAddress = address;
+                }
+            }
+
+            
+            
+
+
+            if (locationDto.Latitude >= -90 && locationDto.Latitude <= 90 &&
+                locationDto.Longitude >= -180 && locationDto.Longitude <= 180)
+            {
+                
+
+                return Ok($"Received location: Latitude {locationDto.Latitude}, Longitude {locationDto.Longitude}");
+            }
+            else
+            {
+                return BadRequest("Invalid latitude or longitude values.");
+            }}
+            // Haversine Formula
+            private double CalculateDistance(double lat1, double lon1, double lat2, double lon2)
+            {
+                const double R = 6371; // Radius of Earth ( KM )
+
+                // Translate into radians 
+                double lat1Rad = lat1 * ((Math.PI)/180);
+                double lon1Rad = lon1 * ((Math.PI)/180);
+                double lat2Rad = lat2 * ((Math.PI)/180);
+                double lon2Rad = lon2 * ((Math.PI)/180);
+
+                // Delta of the lats and longs
+                double dLat = lat2Rad - lat1Rad;
+                double dLon = lon2Rad - lon1Rad;
+
+                // Haversine formula 
+                double a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2) +
+                Math.Cos(lat1Rad) * Math.Cos(lat2Rad) *
+                Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
+
+                // The central angle using the results from the Haversine formula 
+                double c = 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
+                // Return the distance between the two points
+                return R * c ; 
+            }
+
+            private double DegreesToRadians(double degrees)
+            {
+                return degrees * (Math.PI / 180);
+            }
+
+            }
+
         // DATA TRANSFER OBJECT FOR LOGIN CREDENTIALS
         public class LoginRequest
         {
             public string Email { get; set; }
             public string Password { get; set; }
         }
-    }
+
+        
 
 
