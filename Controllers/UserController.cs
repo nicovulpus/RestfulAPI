@@ -147,7 +147,7 @@ public class UserController : ControllerBase
             if (locationDto.Latitude >= -90 && locationDto.Latitude <= 90 &&
                 locationDto.Longitude >= -180 && locationDto.Longitude <= 180)
             {
-                
+                // Extract from JWT token the identifier
                 var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
             
             // Create a bounding box
@@ -190,17 +190,30 @@ public class UserController : ControllerBase
                     return NotFound("No address found near your location.");
                 }
 
+                // Parse the identifier I stored earlier into token, so as to locate the user in the DB
                 var userId = int.Parse(userIdClaim.Value);
                 var user = await _context.Users.FindAsync(userId);
+                // Update users current address with the one the user sent just now
                 user.CurrentAddressId = closestAddress.Id;
 
-                var logEntry = new UserAddressLog
+
+                // Make sure no duplicate entries are made
+                var alreadyLogged = await _context.UserAddressLogs
+                     .AnyAsync(log => log.UserId == user.Id && log.AddressId == closestAddress.Id);
+
+                if (!alreadyLogged)
                 {
-                    UserId = user.Id,
-                    AddressId = closestAddress.Id,
-                    VisitedAt = DateTime.UtcNow
-                };
-                _context.UserAddressLogs.Add(logEntry);
+                    var logEntry = new UserAddressLog
+                    {
+                        UserId = user.Id,
+                        AddressId = closestAddress.Id,
+                        VisitedAt = DateTime.UtcNow
+                    };
+    
+                    _context.UserAddressLogs.Add(logEntry);
+                }
+
+                // Save changes
                 await _context.SaveChangesAsync();
 
 
@@ -215,6 +228,100 @@ public class UserController : ControllerBase
             
 
 
+            [Authorize]
+            [HttpGet("users-in-area")]
+            
+            public async Task<IActionResult> GetUsersInSameArea()
+            {
+                // Get the ID of the currently logged in user 
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+
+                if (userIdClaim == null)
+                {
+                    return Unauthorized("User ID claim not found.");
+                }
+
+                int userId = int.Parse(userIdClaim.Value);
+
+                // Get the CurrentAddressId of the user 
+                
+                var user = await _context.Users.FindAsync(userId);
+
+                if (user == null || user.CurrentAddressId == null)
+                {
+                    return NotFound("User or their current address not found.");
+                }
+            
+                // Find all other users who are also at that same location
+
+                var otherUsers = await _context.Users
+                    .Where(u => u.CurrentAddressId == user.CurrentAddressId && u.Id != user.Id )
+                    .Select(u => u.Email)
+                    .ToListAsync();
+
+                // If no other users are present, return "No other users nearby"
+
+                if (!otherUsers.Any())
+                {
+                    return Ok("No other users nearby.");
+                }
+
+                // Respond with a list of email of the users that are currently in the same location 
+                // and also what address they are currently in , and also exclude the current user 
+                return Ok(new 
+                {
+                    Location = await _context.Addresses.FindAsync(user.CurrentAddressId),
+                    Users = otherUsers
+                });
+
+            }
+            
+            
+
+            [Authorize]
+            [HttpGet("locations-visited")]
+            public async Task<IActionResult> FindLocationsVisited()
+            {
+                // Get the ID of currently logged in user 
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+
+                if (userIdClaim == null)
+                {
+                    return Unauthorized("User ID claim not found.");
+                }
+
+                int userId = int.Parse(userIdClaim.Value);
+
+                // search through the addresslog for all location id's this user has been to
+                 // For each log, JOIN with Address table for the address info
+                 // Return a list consisting of the columns: ( street, housenumber, postcode and city) 
+                var logs = await _context.UserAddressLogs
+                .Where(log => log.UserId == userId)
+                .Include(log => log.Address)
+                .           Select(log => new {
+                    log.Address.Street,
+                    log.Address.Housenumber,
+                    log.Address.Postcode,
+                    log.Address.City
+                })
+                .ToListAsync();
+
+            return Ok(logs);
+
+            }
+            
+
+            
+
+           
+
+            
+
+            
+
+
+            
+            
             // Haversine Formula
             private double CalculateDistance(double lat1, double lon1, double lat2, double lon2)
             {
