@@ -144,8 +144,14 @@ public class UserController : ControllerBase
                 return BadRequest("Invalid location data.");
             }
 
-            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+            if (locationDto.Latitude >= -90 && locationDto.Latitude <= 90 &&
+                locationDto.Longitude >= -180 && locationDto.Longitude <= 180)
+            {
+                
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+            
             // Create a bounding box
+            
             double lat = locationDto.Latitude;
             double lon = locationDto.Longitude;
             double distanceInKm = 1.0;
@@ -179,15 +185,26 @@ public class UserController : ControllerBase
                     closestAddress = address;
                 }
             }
+                if (closestAddress == null)
+                {
+                    return NotFound("No address found near your location.");
+                }
 
-            
-            
+                var userId = int.Parse(userIdClaim.Value);
+                var user = await _context.Users.FindAsync(userId);
+                user.CurrentAddressId = closestAddress.Id;
+
+                var logEntry = new UserAddressLog
+                {
+                    UserId = user.Id,
+                    AddressId = closestAddress.Id,
+                    VisitedAt = DateTime.UtcNow
+                };
+                _context.UserAddressLogs.Add(logEntry);
+                await _context.SaveChangesAsync();
 
 
-            if (locationDto.Latitude >= -90 && locationDto.Latitude <= 90 &&
-                locationDto.Longitude >= -180 && locationDto.Longitude <= 180)
-            {
-                
+
 
                 return Ok($"Received location: Latitude {locationDto.Latitude}, Longitude {locationDto.Longitude}");
             }
@@ -195,6 +212,9 @@ public class UserController : ControllerBase
             {
                 return BadRequest("Invalid latitude or longitude values.");
             }}
+            
+
+
             // Haversine Formula
             private double CalculateDistance(double lat1, double lon1, double lat2, double lon2)
             {
@@ -219,11 +239,6 @@ public class UserController : ControllerBase
                 double c = 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
                 // Return the distance between the two points
                 return R * c ; 
-            }
-
-            private double DegreesToRadians(double degrees)
-            {
-                return degrees * (Math.PI / 180);
             }
 
             }
